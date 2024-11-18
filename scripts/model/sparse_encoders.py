@@ -150,9 +150,52 @@ class SparseEncoder:
         output = self.post_processor(output)
         return output
 
+from nltk.corpus import wordnet
+
+def vectorized_function(queries):
+    def expand_query(query_text):
+        words = query_text.split()
+        expanded_words = []
+        for word in words:
+            top_similar_words = top_n(word)
+            expanded_words.extend([word] + top_similar_words)
+        return ' '.join(expanded_words)
+
+    return {query_id: expand_query(query_text) for query_id, query_text in queries.items()}
+
+def top_n(word, n=5):
+    synsets = wordnet.synsets(word)
+    if not synsets:
+        return []
+
+    similar_words = []
+    for synset in synsets:
+        similar_words.extend([lemma.name() for lemma in synset.lemmas()])
+
+    similar_words = list(set(similar_words))  # Remove duplicates
+    similar_words = [w for w in similar_words if w != word]  # Remove the original word
+
+    return similar_words[:n]
+
 
 def sparse_embedding_to_query(token_weight_map, field_name="text_sparse"):
     clause_list = []
+
+    # for token in token_weight_map.keys(): if token is a word, then expand it
+    # the original word and the expanded words have 1/(n+1) weight
+    # return the token_weight_map with expanded words
+    expanded_token_weight_map = {}
+    for token, weight in token_weight_map.items():
+        expanded_token_weight_map[token] = weight
+        if '#' in token:
+            continue
+        expanded_words = top_n(token)
+        for expanded_word in expanded_words:
+            expanded_token_weight_map[expanded_word] = weight * 0.2 / (len(expanded_words) + 1)
+        expanded_token_weight_map[token] = weight*0.8
+    token_weight_map = expanded_token_weight_map
+
+
     for token, weight in token_weight_map.items():
         clause_list.append(
             {

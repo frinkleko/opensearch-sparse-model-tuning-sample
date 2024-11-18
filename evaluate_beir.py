@@ -50,6 +50,50 @@ from beir.retrieval.evaluation import EvaluateRetrieval
 
 logger = logging.getLogger(__name__)
 
+# from nltk.corpus import wordnet
+
+# def vectorized_function(queries):
+#     def expand_query(query_text):
+#         words = query_text.split()
+#         expanded_words = []
+#         for word in words:
+#             top_similar_words = top_n(word)
+#             expanded_words.extend([word] + top_similar_words)
+#         return ' '.join(expanded_words)
+
+#     return {query_id: expand_query(query_text) for query_id, query_text in queries.items()}
+
+# def top_n(word, n=1):
+#     synsets = wordnet.synsets(word)
+#     if not synsets:
+#         return []
+
+#     similar_words = []
+#     for synset in synsets:
+#         similar_words.extend([lemma.name() for lemma in synset.lemmas()])
+
+#     similar_words = list(set(similar_words))  # Remove duplicates
+#     similar_words = [w for w in similar_words if w != word]  # Remove the original word
+
+#     return similar_words[:n]
+
+# def top_t(word, threshold=0.8):
+#     synsets = wordnet.synsets(word)
+#     if not synsets:
+#         return []
+
+#     similar_words = []
+#     for synset in synsets:
+#         for lemma in synset.lemmas():
+#             for related_synset in lemma.derivationally_related_forms():
+#                 for related_lemma in related_synset.lemmas():
+#                     name = related_lemma.name()
+#                     if name != word and synset.path_similarity(related_synset) >= threshold:
+#                         similar_words.append(name)
+
+#     return list(set(similar_words))
+
+
 
 def main():
     model_args, data_args, training_args = parse_args()
@@ -93,8 +137,15 @@ def main():
         accelerator.wait_for_everyone()
         data_path = os.path.join(data_args.beir_dir, dataset)
         corpus, queries, qrels = GenericDataLoader(data_folder=data_path).load(
-            split="test"
-        )
+            split="test")
+
+        # for query_text in queries.values():
+        #     words = query_text.split()
+        #     for word in words:
+        #         top_similar_words = get_top_n_similar_words(word)
+        #         query_text += " " + " ".join(top_similar_words)
+        # queries = vectorized_function(queries)
+
 
         asyncio.run(
             ingest(
