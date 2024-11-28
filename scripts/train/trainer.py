@@ -61,8 +61,17 @@ class SparseModelTrainer(Trainer):
     def flops_value(self, representation, group_num=1):
         # representation size: (ndevice * batch_size) * vocab_dim
         # group num: how many semantic similar documents representations in one batch
-        representation = representation.reshape(-1, group_num, representation.shape[-1])
-        return torch.sum(torch.mean(torch.abs(representation), dim=0) ** 2)
+        if self.data_args.flops_threshold is None:
+            representation = representation.reshape(-1, group_num,
+                                                    representation.shape[-1])
+            return torch.sum(torch.mean(torch.abs(representation), dim=0)**2)
+        else:
+            representation = representation.reshape(-1, group_num,
+                                                    representation.shape[-1])
+            flops_per_token = torch.abs(representation)
+            mask = (flops_per_token > self.data_args.flops_threshold).float()
+            flops_per_average_token = torch.mean(mask * flops_per_token, dim=0) ** 2
+            return torch.sum(flops_per_average_token)
 
     def get_lambda(self, lambda_value, lambda_T):
         if self.state.global_step >= lambda_T:
@@ -92,7 +101,8 @@ class SparseModelTrainer(Trainer):
         q_rep = gather_rep(q_rep, self.accelerator)
         if "scores" in inputs:
             inputs["scores"] = gather_rep(inputs["scores"], self.accelerator)
-        d_flops = self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])
+        d_flops = torch.log(1 + self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])) * 10
+        # d_flops = self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])
         flops_loss += d_flops * self.get_lambda(
             self.data_args.flops_d_lambda, self.data_args.flops_d_T
         )
