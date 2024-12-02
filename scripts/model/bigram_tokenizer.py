@@ -103,6 +103,8 @@ if __name__ == '__main__':
     new_tokens = tokenizer.convert_ids_to_tokens(ids)
     print(new_tokens)
 
+    print()
+
     print('Original Bert Tokenizer')
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     tokens = tokenizer.tokenize(text)

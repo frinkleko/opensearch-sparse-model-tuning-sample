@@ -1,11 +1,16 @@
-from transformers import BertTokenizer
+import os
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+os.chdir(project_root)   
+
+from scripts.model.bigram_tokenizer import BiGramBertTokenizer
 from scripts.model.decomposition_bert import *
 
 # Load pre-trained BERT tokenizer
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+tokenizer = BiGramBertTokenizer.from_pretrained('bert-base-uncased', bi_gram_file='./bigrams_vocab.txt')
 
 # Tokenize input
-text = "The quick brown fox jumps over the lazy dog."
+text = "This is a sample text 7 km."
 encoded_input = tokenizer(text, return_tensors='pt')
 
 # Initialize the custom DecompBertForMaskedLM model
@@ -32,9 +37,14 @@ logits = outputs.logits
 # Get the predicted token for the masked position
 masked_token_logits = logits[0, mask_idx, :]
 predicted_token_id = torch.argmax(masked_token_logits).item()
-predicted_token = tokenizer.decode([predicted_token_id])
+
+print(predicted_token_id, tokenizer.convert_ids_to_tokens([predicted_token_id]))
+
+print(predicted_token_id, tokenizer.convert_ids_to_tokens([predicted_token_id]))
+
+predicted_token = tokenizer.convert_ids_to_tokens([predicted_token_id])
 print(f"Predicted token for masked position: {predicted_token}")
 # print correct token
-correct_token = tokenizer.decode(encoded_input.input_ids[0, mask_idx].item())
+correct_token = tokenizer.convert_ids_to_tokens([encoded_input.input_ids[0, mask_idx].item()])
 print(f"Correct token: {correct_token}")
 
