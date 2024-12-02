@@ -101,7 +101,7 @@ class SparseModelTrainer(Trainer):
         q_rep = gather_rep(q_rep, self.accelerator)
         if "scores" in inputs:
             inputs["scores"] = gather_rep(inputs["scores"], self.accelerator)
-        d_flops = torch.log(1 + self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])) * 10
+        # d_flops = torch.log(1 + self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])) * 10
         # d_flops = self.flops_value(d_rep, d_rep.shape[0] // q_rep.shape[0])
         flops_loss += d_flops * self.get_lambda(
             self.data_args.flops_d_lambda, self.data_args.flops_d_T
