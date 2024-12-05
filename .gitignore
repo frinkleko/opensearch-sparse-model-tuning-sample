@@ -1,7 +1,7 @@
 output/
 data/
-config_baseline.yaml
-run_baseline.sh
+*.yaml
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
