@@ -35,56 +35,60 @@ from beir.datasets.data_loader import GenericDataLoader
 
 logger = logging.getLogger(__name__)
 
+# async def ingest(
+#     dataset: Dataset,
+#     model: SparseModel,
+#     out_dir: str,
+#     index_name: str,
+#     accelerator: Accelerator,
+#     max_length: int = 512,
+#     batch_size: int = 50,
+# ):
+#     os_client = get_os_client()
+#     os.makedirs(out_dir, exist_ok=True)
+#     if isinstance(dataset, DDPDatasetWithRank):
+#         logger.error("Input dataset can not be DDPDatasetWithRank.")
+#         raise RuntimeError("Input dataset can not be DDPDatasetWithRank.")
+#     ddp_dataset = DDPDatasetWithRank(
+#         dataset, accelerator.local_process_index, accelerator.num_processes
+#     )
+#     logger.info(
+#         f"Local rank: {accelerator.local_process_index}, index_name: {index_name}, sample number: {len(ddp_dataset)}"
+#     )
+#     dataloader = DataLoader(ddp_dataset, batch_size=batch_size)
 
-async def just_encode_query(
-    queries: dict,
-    model: SparseModel,
-    out_dir: str,
-    index_name: str,
-    max_length: int = 512,
-    batch_size: int = 50,
-    result_size: int = 15,
-    inf_free: bool = True,
-    delete: bool = False,
-):
-    os.makedirs(out_dir, exist_ok=True)
+#     accelerator.prepare(model)
+#     sparse_encoder = SparseEncoder(
+#         sparse_model=model,
+#         max_length=max_length,
+#         do_count=True,
+#     )
 
-    queries_dataset = KeyValueDataset(queries)
-    dataloader = torch.utils.data.DataLoader(queries_dataset, batch_size=batch_size)
+#     # do model encoding and ingestion
+#     # use async io so we don't need to wait every bulk return
+#     # we send out 20 bulk request, then wait all of them return
+#     tasks = []
+#     timeout = ClientTimeout(total=600)
+#     async with aiohttp.ClientSession(timeout=timeout) as session:
+#         for ids, texts in tqdm(dataloader):
+#             output = sparse_encoder.encode(texts)
 
-    query_encoder = SparseEncoder(
-        sparse_model=model,
-        max_length=max_length,
-        do_count=True,
-    )
+#         await asyncio.gather(*tasks)
 
-    encoded_queries = []
-    for ids, texts in tqdm(dataloader):
-        queries_encoded = query_encoder.encode(texts, inf_free=inf_free)
-        encoded_queries.extend(queries_encoded)
+#     sparse_encoder.count_tensor = sparse_encoder.count_tensor.reshape(1, -1)
+#     accelerator.wait_for_everyone()
+#     all_count_tensor = accelerator.gather(sparse_encoder.count_tensor)
 
-    if delete:
-        client = get_os_client()
-        client.indices.delete(index_name, params={"timeout": 1000})
-
-    return encoded_queries
 
 def main():
     model_args, data_args, training_args = parse_args()
-
+    stat = dict()
     args_dict = {
         "model_args": asdict(model_args),
         "data_args": asdict(data_args),
         "training_args": asdict(training_args),
     }
-    beir_eval_dir = os.path.join(training_args.output_dir, "beir_eval")
-    os.makedirs(beir_eval_dir, exist_ok=True)
-    with open(
-        os.path.join(training_args.output_dir, "beir_eval", "config.yaml"), "w"
-    ) as file:
-        yaml.dump(args_dict, file, sort_keys=False)
 
-    set_logging(training_args, "eval_beir.log")
     set_seed(training_args.seed)
 
     model = get_model(model_args)
@@ -94,11 +98,16 @@ def main():
 
     datasets = data_args.beir_datasets.split(",")
 
-    for dataset in datasets[0]:
+    max_length = 512
+    encoder = SparseEncoder(
+        sparse_model=model,
+        max_length=max_length,
+        do_count=True,
+    )
+    for dataset in datasets:
         # if the dataset wasn't download before, only download it on main process
-        print('dataset:', dataset)
-        if accelerator.is_local_main_process and not os.path.exists(
-            os.path.join(data_args.beir_dir, dataset)
+        if not os.path.exists(
+        os.path.join(data_args.beir_dir, dataset)
         ):
             url = f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{dataset}.zip"
             data_path = util.download_and_unzip(url, data_args.beir_dir)
@@ -108,40 +117,23 @@ def main():
             split="test"
         )
 
-        asyncio.run(
-            ingest(
-                dataset=BEIRCorpusDataset(corpus=corpus),
-                model=model,
-                out_dir=beir_eval_dir,
-                index_name=dataset,
-                accelerator=accelerator,
-                max_length=data_args.max_seq_length,
-                batch_size=training_args.per_device_eval_batch_size,
-            )
-        )
+        
+        for ids, values in tqdm(corpus.items()):
+            text = values['text']
+            encoded_doc = encoder.encode(text)
+            stat[ids] = encoded_doc
+            if len(stat) > 10:
+                break
+        
+        df_dict = {
+            "id": list(stat.keys()),
+            "value": list(stat.values())
+        }
+        df = pd.DataFrame(df_dict)
+        df.to_feather(f"{data_args.beir_dir}/{dataset}_encoded.feather")
+        break
 
-        # search is only run on main process
-        if accelerator.is_local_main_process:
-            encoded_quires = asyncio.run(
-                just_encode_query(
-                    queries=queries,
-                    model=model,
-                    out_dir=beir_eval_dir,
-                    index_name=dataset,
-                    max_length=data_args.max_seq_length,
-                    batch_size=training_args.per_device_eval_batch_size,
-                    inf_free=model_args.inf_free,
-                )
-            )
 
-        # save the encoded queries
-        if accelerator.is_local_main_process:
-            with open(
-                os.path.join(beir_eval_dir, f"{dataset}_encoded_queries.json"), "w"
-            ) as f:
-                json.dump(encoded_quires, f)
-
-        accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__":
